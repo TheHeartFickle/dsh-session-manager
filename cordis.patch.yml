@@ -11,7 +11,7 @@
 # config.rewindIgnoreFile 是 rewind 快照的公共 ignore 文件模板占位；
 # 真正的路径在 profile 的 cordis.patch.yml 中覆盖，例如：
 #   - id: session-manager
-#     name: '@theheartfickle/dsh-session-manager-plugin'
+#     name: '@the-heart-fickle/dsh-session-manager-plugin'
 #     config:
 #       rewindIgnoreFile: 'rewind-common.gitignore'
 #       rewindFileMode: 'git'
@@ -22,7 +22,7 @@
 #   - none：不启用文件回退，回退时只回退会话。
 - insert:
     - id: session-manager
-      name: '@theheartfickle/dsh-session-manager-plugin'
+      name: '@the-heart-fickle/dsh-session-manager-plugin'
       config:
         rewindIgnoreFile: ''
         rewindFileMode: 'git'

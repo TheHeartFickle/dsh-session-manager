@@ -32,7 +32,7 @@
 ### 通过 npm / DSH CLI 安装
 
 ```sh
-dsh plugin --profile web add @theheartfickle/dsh-session-manager-plugin@latest
+dsh plugin --profile web add @the-heart-fickle/dsh-session-manager-plugin@latest
 ```
 
 ### 通过 plugin-registry 安装
@@ -40,7 +40,7 @@ dsh plugin --profile web add @theheartfickle/dsh-session-manager-plugin@latest
 ```sh
 npm run package:registry
 dsh registry install ./registry
-dsh registry enable theheartfickle/dsh-session-manager
+dsh registry enable the-heart-fickle/dsh-session-manager
 ```
 
 > `registry/` 是本地生成的安装暂存目录，不会提交到仓库。
@@ -59,7 +59,7 @@ dsh registry enable theheartfickle/dsh-session-manager
 
 ```yaml
 - id: session-manager
-  name: '@theheartfickle/dsh-session-manager-plugin'
+  name: '@the-heart-fickle/dsh-session-manager-plugin'
   config:
     rewindIgnoreFile: 'rewind-common.gitignore'
     rewindFileMode: 'git'   # 'git' | 'diff' | 'none'

@@ -5,7 +5,7 @@
  *
  *   node scripts/package-registry.mjs
  *   dsh registry install ./registry
- *   dsh registry enable theheartfickle/dsh-session-manager
+ *   dsh registry enable the-heart-fickle/dsh-session-manager
  *
  * The staging directory contains exactly the files the manifest references
  * plus the bundled docs. It is gitignored and rebuilt from scratch on every
@@ -42,4 +42,4 @@ for (const file of files) {
 }
 
 console.log(`registry/ assembled (${files.length} files)`);
-console.log('next: dsh registry install ./registry && dsh registry enable theheartfickle/dsh-session-manager');
+console.log('next: dsh registry install ./registry && dsh registry enable the-heart-fickle/dsh-session-manager');

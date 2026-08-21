@@ -1,5 +1,5 @@
 {
-  "name": "@theheartfickle/dsh-session-manager-plugin",
+  "name": "@the-heart-fickle/dsh-session-manager-plugin",
   "version": "0.1.0",
   "description": "DSH plugin that bundles dsh-session-manager: session rewind (shadow git + file rollback) and archived session management.",
   "type": "module",
