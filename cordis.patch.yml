@@ -1,0 +1,28 @@
+# dsh-session-manager 会话管理插件
+# 会话管理插件（由原 rewind 与 archive 两个功能合并而来）。
+#
+# host 半边：
+# - rewind：工作区级 shadow git 快照 + /api/session-manager/rewind/*
+# - archives：/api/session-manager/archives/*
+# client 半边：
+# - 会话头部“回退”按钮
+# - 侧边栏底部“归档会话”入口
+#
+# config.rewindIgnoreFile 是 rewind 快照的公共 ignore 文件模板占位；
+# 真正的路径在 profile 的 cordis.patch.yml 中覆盖，例如：
+#   - id: session-manager
+#     name: '@theheartfickle/dsh-session-manager-plugin'
+#     config:
+#       rewindIgnoreFile: 'rewind-common.gitignore'
+#       rewindFileMode: 'git'
+# 相对路径基于 profile 目录解析。
+# config.rewindFileMode 控制回退时的文件行为：
+#   - git（默认）：Git shadow 快照优先，失败时兜底为文件读写回退；
+#   - diff：只使用文件读写回退，不创建 shadow git 快照；
+#   - none：不启用文件回退，回退时只回退会话。
+- insert:
+    - id: session-manager
+      name: '@theheartfickle/dsh-session-manager-plugin'
+      config:
+        rewindIgnoreFile: ''
+        rewindFileMode: 'git'

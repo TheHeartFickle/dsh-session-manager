@@ -1,0 +1,55 @@
+{
+  "name": "@theheartfickle/dsh-session-manager-plugin",
+  "version": "0.1.0",
+  "description": "DSH plugin that bundles dsh-session-manager: session rewind (shadow git + file rollback) and archived session management.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "dsh.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "package:registry": "node scripts/package-registry.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": "TheHeartFickle",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheHeartFickle/dsh-session-manager.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "dsh",
+    "plugin",
+    "session",
+    "rewind",
+    "archive",
+    "deepseek-harness"
+  ]
+}
