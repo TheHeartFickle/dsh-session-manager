@@ -32,7 +32,7 @@
 ### 通过 npm / DSH CLI 安装
 
 ```sh
-dsh plugin --profile web add @the-heart-fickle/dsh-session-manager-plugin@latest
+dsh plugin --profile web add @the-heart-fickle/dsh-session-manager@latest
 ```
 
 ### 通过 plugin-registry 安装
@@ -59,16 +59,16 @@ dsh registry enable the-heart-fickle/dsh-session-manager
 
 ```yaml
 - id: session-manager
-  name: '@the-heart-fickle/dsh-session-manager-plugin'
+  name: '@the-heart-fickle/dsh-session-manager'
   config:
     rewindIgnoreFile: 'rewind-common.gitignore'
-    rewindFileMode: 'git'   # 'git' | 'diff' | 'none'
+    rewindFileMode: 'diff'   # 'git' | 'diff' | 'none'
 ```
 
 - `rewindIgnoreFile`：相对 profile 目录解析的公共 ignore 文件，叠加在工作区自身 `.gitignore` 之上。
 - `rewindFileMode`：控制回退时的文件行为。
-  - `git`（默认）：使用 Git 快照回退，失败时降级为文件读写回退。
-  - `diff`：只使用文件读写回退，不创建 Git 快照。
+  - `git`：使用 Git 快照回退，失败时降级为文件读写回退。
+  - `diff`（默认）：只使用文件读写回退，不创建 Git 快照。
   - `none`：不启用文件回退，仅回退会话。
 
 ## 🔧 环境要求
