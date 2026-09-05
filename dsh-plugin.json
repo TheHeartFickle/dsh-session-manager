@@ -1,0 +1,56 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Yan-Zero/dsh-std/main/packages/manifest/schema/dsh-plugin-0.15.schema.json",
+  "manifestVersion": "0.15",
+  "id": "the-heart-fickle.dsh-session-manager",
+  "name": "DSH Session Manager",
+  "version": "0.1.0",
+  "license": "MIT",
+  "source": {
+    "repository": "https://github.com/TheHeartFickle/dsh-session-manager"
+  },
+  "facets": {
+    "host": {
+      "entry": "./lib/std-host.js",
+      "apiVersion": "v1alpha1"
+    }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "id": "the-heart-fickle.dsh-session-manager.config",
+        "title": "Session manager config",
+        "description": "Return the active rewind file mode as JSON"
+      },
+      {
+        "id": "the-heart-fickle.dsh-session-manager.rewind-rollback-files",
+        "title": "Rewind workspace files",
+        "description": "Roll workspace files back to a snapshot or best-effort diff state; body { sessionId, atSeq, snapshotAtSeq? }"
+      },
+      {
+        "id": "the-heart-fickle.dsh-session-manager.archives-list",
+        "title": "List archived sessions",
+        "description": "Return archived session entries as JSON"
+      },
+      {
+        "id": "the-heart-fickle.dsh-session-manager.archives-unarchive",
+        "title": "Unarchive a session",
+        "description": "Remove a session id from the workspace archive list; body { sessionId }"
+      },
+      {
+        "id": "the-heart-fickle.dsh-session-manager.archives-delete",
+        "title": "Delete an archived session",
+        "description": "Delete one archived session from disk and bookkeeping; body { sessionId }"
+      },
+      {
+        "id": "the-heart-fickle.dsh-session-manager.archives-delete-all",
+        "title": "Delete all archived sessions",
+        "description": "Delete every archived session; returns per-id results"
+      },
+      {
+        "id": "the-heart-fickle.dsh-session-manager.archives-delete-ungrouped",
+        "title": "Delete ungrouped archived sessions",
+        "description": "Delete archived sessions that belong to no workspace; returns per-id results"
+      }
+    ]
+  }
+}

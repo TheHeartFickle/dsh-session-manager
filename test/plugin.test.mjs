@@ -35,6 +35,15 @@ test('client bundle registers the scoped module id', async () => {
   assert.match(client, /id: "@the-heart-fickle\/dsh-session-manager"/);
 });
 
+test('rewind entries read conversation data via useChat (DSH 0.1.2 removed session.chat)', async () => {
+  const client = await readFile(join(root, 'lib/client.js'), 'utf8');
+  assert.match(client, /props\.useChat/);
+  assert.match(client, /function collectEntries\(chat\)/);
+  assert.ok(!client.includes('snapshot.chat'), 'session snapshot no longer carries .chat');
+  // 0.1.2 的 workspaces 服务不再暴露 refresh()
+  assert.match(client, /workspaces\.refresh\?\.\(\)/);
+});
+
 test('plugin exports follow the Cordis plugin shape', () => {
   assert.equal(plugin.name, 'dsh-session-manager');
   assert.ok(Array.isArray(plugin.inject));

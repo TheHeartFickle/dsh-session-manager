@@ -74,8 +74,26 @@ dsh registry enable the-heart-fickle/dsh-session-manager
 ## 🔧 环境要求
 
 - Node.js ≥ 20
-- DSH（DeepSeek Harness）
+- DSH ≥ 0.1.2-rc.1（client 半边依赖 0.1.2 的 `useChat` ChatSnapshot）
 - 使用 `git` 模式时需要系统可用的 `git` 命令
+
+## 📡 通信架构（dsh-std 适配通道）
+
+本插件同时支持两条与 DSH 后端通信的通道，命令权威实现共用 `lib/commands.js`：
+
+- **官方通道**（默认安装方式，功能完整）：经 `cordis.patch.yml` 装配 host 半边，
+  `lib/dsh-adapter.js` 汇聚官方服务触点（sessions / workspaceRegistry /
+  sessionPersistence 等），`/api/session-manager/*` 是标准命令的 HTTP 薄投影。
+- **标准通道**：包根的 `dsh-plugin.json`（Community v0.15）声明 `facets.host.entry`
+  与 7 个 `contributes.commands`。profile 安装 `@dsh-std/adapter-dsh` 后，适配层会把
+  命令发布到 `commands.dsh/v1alpha1`（经 CommandRuntime / 斜杠命令 / browser
+  `executeCommand` 可达）。受 `@dsh-std/adapter-dsh` 0.1.1-rc.2 能力边界限制
+  （SessionCatalog 无 rewind / 归档删除语义），标准通道下这些命令按
+  `backend-unavailable` 显式降级失败，绝不静默假装成功；完整功能仍需官方通道。
+
+```sh
+dsh plugin --profile web add @dsh-std/adapter-dsh   # 启用标准通道
+```
 
 ## 许可证
 

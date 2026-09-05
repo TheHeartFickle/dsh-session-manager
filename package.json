@@ -13,6 +13,7 @@
     "lib",
     "cordis.patch.yml",
     "dsh.plugin.json",
+    "dsh-plugin.json",
     "README.md",
     "LICENSE"
   ],

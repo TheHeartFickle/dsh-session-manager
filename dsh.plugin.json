@@ -4,7 +4,7 @@
   "main": "./lib/index.js",
   "description": "DSH 会话管理插件：对话回退（rewind）+ 归档会话管理（archive）。",
   "engines": {
-    "dsh": ">=0.0.1"
+    "dsh": ">=0.1.2-rc.1"
   },
   "contributes": {
     "tools": [],
