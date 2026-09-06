@@ -17,16 +17,6 @@
   "contributes": {
     "commands": [
       {
-        "id": "the-heart-fickle.dsh-session-manager.config",
-        "title": "Session manager config",
-        "description": "Return the active rewind file mode as JSON"
-      },
-      {
-        "id": "the-heart-fickle.dsh-session-manager.rewind-rollback-files",
-        "title": "Rewind workspace files",
-        "description": "Roll workspace files back to a snapshot or best-effort diff state; body { sessionId, atSeq, snapshotAtSeq? }"
-      },
-      {
         "id": "the-heart-fickle.dsh-session-manager.archives-list",
         "title": "List archived sessions",
         "description": "Return archived session entries as JSON"
