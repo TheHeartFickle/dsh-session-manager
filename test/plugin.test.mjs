@@ -35,11 +35,18 @@ test('client bundle registers the scoped module id', async () => {
   assert.match(client, /id: "@the-heart-fickle\/dsh-session-manager"/);
 });
 
-test('rewind entries read conversation data via useChat (DSH 0.1.2 removed session.chat)', async () => {
+test('rewind entries are served by the host scan (BUGS.md S1) and read via the 0.1.5 handle API (S5)', async () => {
   const client = await readFile(join(root, 'lib/client.js'), 'utf8');
-  assert.match(client, /props\.useChat/);
-  assert.match(client, /function collectEntries\(chat\)/);
-  assert.ok(!client.includes('snapshot.chat'), 'session snapshot no longer carries .chat');
+  assert.match(client, /function fetchEntries\(sessionId\)/);
+  assert.match(client, /\/api\/session-manager\/rewind\/entries/);
+  assert.ok(!client.includes('collectEntries'), '分页窗口读投影的旧路径已删除');
+  const entries = await readFile(join(root, 'lib/rewind-entries.js'), 'utf8');
+  assert.ok(!entries.includes('readRaw'), '0.1.5 的 sessionPersistence 没有 readRaw');
+  assert.match(entries, /persistence\.open\(sessionId, "read"\)/);
+  assert.match(entries, /handle\.read\(\)/);
+  // 回退后清理 fork 子会话继承的排队消息（BUGS.md S7）
+  assert.match(client, /\/api\/session-manager\/rewind\/drain/);
+  assert.match(client, /drainInheritedQueue\(childId\)/);
   // 0.1.2 的 workspaces 服务不再暴露 refresh()
   assert.match(client, /workspaces\.refresh\?\.\(\)/);
 });

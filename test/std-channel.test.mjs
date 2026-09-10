@@ -57,43 +57,15 @@ test('without a backend every command degrades to backend-unavailable', async ()
   const previous = stdHost;
   assert.equal(typeof previous.activate, 'function');
   // 模块默认无 backend：命令应降级失败而不是静默成功
-  const [config] = createSessionManagerCommands({ backend: null });
-  const result = await config.execute({ rawInput: '' });
+  const [archivesList] = createSessionManagerCommands({ backend: null });
+  const result = await archivesList.execute({ rawInput: '' });
   assert.equal(result.kind, 'error');
   const body = JSON.parse(result.text);
   assert.equal(body.error, 'backend-unavailable');
 });
 
-test('config command returns the rewind file mode', async () => {
-  const backend = { getConfig: () => ({ rewindFileMode: 'diff' }) };
-  const [config] = createSessionManagerCommands({ backend });
-  const result = await config.execute({ rawInput: '' });
-  assert.deepEqual(JSON.parse(result.text), { ok: true, rewindFileMode: 'diff' });
-});
-
-test('rewind-rollback-files validates args and projects the backend result', async () => {
-  const calls = [];
-  const backend = {
-    rewindFiles: async input => { calls.push(input); return { status: 200, body: { ok: true, mode: 'diff', restored: [], deleted: [], skipped: [] } }; },
-  };
-  const commands = createSessionManagerCommands({ backend });
-  const command = commands.find(c => c.id === `${COMMAND_PREFIX}.rewind-rollback-files`);
-
-  const badArgs = await command.execute({ rawInput: '{"sessionId":123}' });
-  assert.equal(JSON.parse(badArgs.text).error, 'bad-request');
-
-  const ok = await command.execute({ rawInput: '{"sessionId":"s1","atSeq":4}' });
-  assert.deepEqual(JSON.parse(ok.text), { ok: true, mode: 'diff', restored: [], deleted: [], skipped: [] });
-  assert.deepEqual(calls[0], { sessionId: 's1', atSeq: 4, snapshotAtSeq: undefined });
-
-  // 后端错误投影：{ status, body } → error + body 原样
-  const failing = createSessionManagerCommands({
-    backend: { rewindFiles: async () => ({ status: 409, body: { ok: false, error: 'file-rollback-disabled' } }) },
-  }).find(c => c.id === `${COMMAND_PREFIX}.rewind-rollback-files`);
-  const denied = await failing.execute({ rawInput: '{"sessionId":"s1","atSeq":1}' });
-  assert.equal(denied.kind, 'error');
-  assert.deepEqual(JSON.parse(denied.text), { ok: false, error: 'file-rollback-disabled' });
-});
+// 0.1.2 的文件回退链路（config / rewind-rollback-files 命令）已随 S2/S4 删除，
+// 回退收敛为「entries 扫描 + sessions.fork」；命令面只剩 archives-*。
 
 test('archives commands validate sessionId and project backend results', async () => {
   const commands = createSessionManagerCommands({
@@ -130,17 +102,26 @@ test('official route is a thin projection with legacy status codes preserved', a
       return undefined;
     },
     workspaceRegistry: { archivedSessionIds: [], list: () => [] },
-    sessionPersistence: { list: async () => [] },
+    sessionPersistence: {
+      list: async () => [],
+      stat: async () => undefined,
+    },
     webServer: { register: r => routes.push(r) },
   };
   apply(ctx, {});
   const route = routes[0];
   assert.equal(route.path, '/api/session-manager');
 
-  const res = captureResponse();
-  await route.handler({ method: 'GET', url: '/api/session-manager/config' }, res);
-  assert.equal(res.status, 200);
-  assert.deepEqual(JSON.parse(res.body), { ok: true, rewindFileMode: 'git' });
+  // 0.1.2 的 /config 路由随文件回退链路删除 → unknown-endpoint → 404
+  const gone = captureResponse();
+  await route.handler({ method: 'GET', url: '/api/session-manager/config' }, gone);
+  assert.equal(gone.status, 404);
+
+  // rewind/entries：会话不存在 → session-not-found → 404（旧版语义）
+  const missing = captureResponse();
+  await route.handler(emitBody('POST', '/api/session-manager/rewind/entries', '{"sessionId":"nope"}'), missing);
+  assert.equal(missing.status, 404);
+  assert.equal(JSON.parse(missing.body).error, 'session-not-found');
 
   // 缺少 sessionId → bad-session → 400（旧版语义）
   // mock req 需要在 readBody 注册监听时同步派发 data/end，否则 await readBody 永不返回
@@ -148,6 +129,11 @@ test('official route is a thin projection with legacy status codes preserved', a
   await route.handler(emitBody('POST', '/api/session-manager/archives/unarchive', ''), bad);
   assert.equal(bad.status, 400);
   assert.equal(JSON.parse(bad.body).error, 'bad-session');
+
+  const badDrain = captureResponse();
+  await route.handler(emitBody('POST', '/api/session-manager/rewind/drain', ''), badDrain);
+  assert.equal(badDrain.status, 400);
+  assert.equal(JSON.parse(badDrain.body).error, 'bad-session');
 
   // 归档列表（空 registry）
   const list = captureResponse();
