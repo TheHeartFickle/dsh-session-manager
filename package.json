@@ -1,7 +1,7 @@
 {
   "name": "@the-heart-fickle/dsh-session-manager",
   "version": "0.1.0",
-  "description": "DSH plugin that bundles dsh-session-manager: session rewind (shadow git + file rollback) and archived session management.",
+  "description": "DSH plugin that bundles dsh-session-manager: session rewind (fork to a past user input) and archived session management.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
