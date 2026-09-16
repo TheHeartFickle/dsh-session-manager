@@ -26,15 +26,17 @@
   - `sessionPersistence.readRaw(id)` 返回会话日志完整明文 JSONL（host 侧）；
   - 真实日志普查（6 份近期日志共 72 条 user/message）：`source.kind` 分布为
     user 45 / agent-instructions 13 / skill-catalog 10 / plugin 4——
-    **只有 `source.kind === "user"` 是真实输入**；steering 插话不产生
-    user/message 行；system-reminder 包装全部落在合成 kind 里。
+    只有 `source.kind === "user"` 覆盖全部真实输入；system-reminder 包装全部
+    落在合成 kind 里。（**该结论不完整**：steering 插话落盘时同样是
+    `source.kind === "user"` 的 `user/message`，见 S9。）
 - **修复（方案 a：服务端扫描）**：
   - 新增 `lib/rewind-entries.js`：`listUserInputs(ctx, sessionId)` 用
     `sessionPersistence.readRaw` 读日志，取 `source.kind==="user"` 的
     `user/message`，turn 号按 turn/start 顺序推导，返回 `{ seq, turn, text, time }`；
   - `lib/index.js` 新增 `POST /api/session-manager/rewind/entries`；
   - 客户端 `RewindModal` 打开时拉取该端点（含载入态/错误态），删除读投影的
-    `collectEntries`；条目→边界映射不变（条目 j 的 boundary = 前一条的 seq）。
+    `collectEntries`；条目→边界映射当时为「条目 j 的 boundary = 前一条的
+    seq」，该取法在 S9 中被修正为「选中 turn 之前最后一个 turn/end」。
 - **验证 `[browser]`**：合成 20 轮会话（92 条 surface 消息，初始窗口只含尾部
   ~12 轮），不滚动直接打开回退弹窗 → 列出全部 19 条可回退点，最旧一条来自
   未加载的第 2 轮；服务端端点单独验证返回 20 条真实输入（system-reminder
@@ -53,6 +55,7 @@
 - **修复**：`lib/rewind-entries.js` 改为 `stat()` 预检（缺失 → `session-not-found`）
   + `open(id, "read")` + `handle.read()` 取结构化事件（contiguous、含种子前缀），
   过滤逻辑（`source.kind==="user"`、turn/start 推导 turn 号）不变；读后 `close()`。
+  （`source.kind === "user"` 这一条过滤在 S9 中补上了 steering 剔除与边界修正。）
 
 ### S6 `[browser]` 归档会话「删除」后文件残留、会话进入「未分组」；冷会话状态失真
 
@@ -101,12 +104,63 @@
   折叠不在种子里。
 - **修复**：`lib/rewind-entries.js` 取**最后一个 `compaction/end` 的 seq** 为
   压缩底线：底线之前的真实输入不进入列表；压缩后首条输入可回退（回到压缩
-  点重新开始），其 fork 边界 = 底线 —— fork 种子完整携带压缩段
-  （compaction/* + 检查点 user/message），子会话投影重放时折叠回检查点状态。
-  边界改为服务端逐条下发（`inputs[].boundary`），客户端 `toEntries` 直接消费
-  （无压缩时首条 boundary 为 null，维持「第一条输入不可回退」语义）。
+  检查点重新开始）。边界改为服务端逐条下发（`inputs[].boundary`），客户端
+  `toEntries` 直接消费（无压缩时首条 boundary 为 null，维持「第一条输入不可
+  回退」语义）。**边界取值本身在 S9 中被修正**：不再把底线当地界，而是取
+  「选中输入所在 turn 之前最后一个 `turn/end`」，靠 fork 的前推切片让种子
+  天然携带压缩段（压缩后首条的种子切到该 turn 的 `turn/start`，压缩段必在
+  其前）。
 - **验证**：单测覆盖（压缩前剔除 / 多次压缩取最后底线 / 压缩后无输入 →
   空列表）；浏览器验收并入 S5 的验收流程。
+
+### S9 `[commit]` 回退实际未截断：前序回合未闭合时 fork 整段复制原会话
+
+- **现象**（用户提供的 `dsh-session-session-a4fa01ed-*.zip` 与配套子会话
+  `dsh-session-session-4448a798-*.zip`，日志逐条核实）：在 session-a4fa01ed
+  打开回退弹窗，选中最新的用户输入（turn 40「npm run build的时候,日志在
+  build-cache…」）确认回退，得到的新会话 session-4448a798 事件与父会话逐条
+  相同（3776 → 3778，只多 `session/end-seed` + `session/title`），**完全没
+  回退**；用户在 2 分钟内重试 4 次（e4e6d0fd / ec6ccb8a / 3d3e6c62 /
+  4448a798）都是整段复制。
+- **根因 `[code]`**：0.1.5 的 `session/fork` 把 `atSeq` **向前吸附到首个
+  `turn/end`**，再把切片推进到其后的第一个 `turn/start`
+  （`session-controller/src/commands.ts` 的 `anchoredBoundary` +
+  `while (cut … !== "turn/start")`）。服务端下发的是「上一条用户输入的 seq」，
+  只有当该输入所在回合确实有 `turn/end` 时才会吸附到那个回合末。该会话
+  turn 39 因 agent 被中断**没有 `turn/end`**（turn/start 3728 → 下一条
+  turn/start 3755），于是 `atSeq=3731` 吸附到 turn 40 的 `turn/end`(3775)，
+  切片推进到日志末尾 → 整段复制（切点 3776 = 全长）。同类偏差另有两处：
+  （a）压缩后首条的边界取压缩底线（`compaction/end` 不是 turn/end）会吸附
+  过头，把选中的输入本身包进种子；（b）steering 插话落盘同样是
+  `source.kind === "user"` 的 `user/message`（如 A 的 seq 3651），被当成回退点
+  列出，其边界又落在同一回合内、语义不可表达。交叉印证：导出的真实子会话
+  d6de226b（旧规则下选 turn 38 输入，边界 = 上一条输入 3683）切点 3702，
+  与新规则对同一输入算出的切点一致。
+- **修复**：`lib/rewind-entries.js` 两处：
+  1. 边界改为**选中输入所在 turn 之前最后一个 `turn/end` 的 seq**：吸附后切片
+     正好停在该 turn 的 `turn/start` 之前，选中输入不入种子；压缩段位于该
+     turn 之前时被完整携带；前序 turn 未闭合（缺 `turn/end`）时边界回落到更早
+     的已闭合 turn —— 未闭合 turn 不能作为合法种子结尾（`_forkSeed` 拒绝
+     停在未闭合 turn），只能连同选中输入一起撤销，**绝不能退化成整段复制**。
+  2. 按官方 `SteeringHistory` 重放 `agent/inbox/spliced` 队列，剔除被
+     `next-step` 认领的 user/message（steering），与聊天投影的 kind 判定一致。
+  3. 前序 turn 未闭合（`closedTurn < turn - 1`）时给条目加 `dropsOpenTurns: true`；
+     客户端在列表项渲染警告图标、在预览区（确认按钮上方）渲染
+     「它前面未正常结束的回合会被一并撤销」文案 —— 只在真的会连带撤销时才出现
+     （SPEC.md §1.4）。
+- **验证**（单测 + 真实日志复算，浏览器验收待重启实例）：
+  - 新增单测：steering 剔除；未闭合前序 turn 的边界回落并带 `dropsOpenTurns`
+    （`test/rewind-host.test.mjs`）；客户端提示接线（`test/plugin.test.mjs`）。
+  - 用 4 份用户真实导出日志（A/B/C/D 的 `session.v3.jsonl` 共 31 个可回退点）
+    复算 0.1.5 的 fork 切点：新边界下 **0 次**包含被选中输入、**0 次**整段
+    复制；A 的 turn 40 边界由 `3731` 变为 `3726`（切点由 3776=全长变为
+    3728），A 的列表由 13 条降为 12 条（steering 3651 被剔除）。
+  - 同一复算跑遍工作区 9 份 live 会话日志（含多帧 zstd 与种子前缀）：
+    `dropsOpenTurns` 只命中 A/B/e4e6d0fd/ec6ccb8a/3d3e6c62 的 turn 40 条目
+    （正是本次故障点），其余条目零误报。
+  - 浏览器验收：重启 0.1.5 实例后在 A 上选 turn 40 回退，应看到警告提示，并得到
+    “到 turn 38 为止”的新会话 + 草稿回填（未闭合的 turn 39 会被一并撤销，
+    这是 0.1.5 fork 不能停在未闭合回合的必然结果）。
 
 ## 已修复（保留记录，回归测试覆盖）
 

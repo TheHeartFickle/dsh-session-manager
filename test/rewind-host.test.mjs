@@ -1,4 +1,4 @@
-// 针对 DSH 0.1.5 API 漂移与 fork 队列继承的回归测试（BUGS.md S5/S6/S7）。
+// 针对 DSH 0.1.5 API 漂移与 fork 边界/队列继承的回归测试（BUGS.md S5/S6/S7/S8/S9）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -9,20 +9,34 @@ import { listUserInputs } from '../lib/rewind-entries.js';
 import { drainInheritedInbox } from '../lib/rewind-drain.js';
 import { createArchive } from '../lib/archive.js';
 
-const userMessage = (seq, text, time) => ({
+const userMessage = (seq, text, time, id) => ({
   type: 'user/message',
   seq,
   time,
-  data: { source: { kind: 'user' }, content: [{ type: 'text', text }] },
+  data: { id: id ?? `msg-${seq}`, source: { kind: 'user' }, content: [{ type: 'text', text }] },
 });
 const synthetic = (seq, kind) => ({
   type: 'user/message',
   seq,
   time: 0,
-  data: { source: { kind }, content: [{ type: 'text', text: 'synthetic' }] },
+  data: { id: `synthetic-${seq}`, source: { kind }, content: [{ type: 'text', text: 'synthetic' }] },
 });
 const turnStart = (seq) => ({ type: 'turn/start', seq, time: 0, data: { turn: 0 } });
+const turnEnd = (seq) => ({ type: 'turn/end', seq, time: 0, data: { turn: 0 } });
 const compactionEnd = (seq) => ({ type: 'compaction/end', seq, time: 0, data: {} });
+/** next-step（steering）队列：先入队，再被内核认领成 user/message。 */
+const enqueueSteering = (seq, id) => ({
+  type: 'agent/inbox/spliced',
+  seq,
+  time: 0,
+  data: { target: 'next-step', start: 0, inserted: [{ id }] },
+});
+const claimSteering = (seq) => ({
+  type: 'agent/inbox/spliced',
+  seq,
+  time: 0,
+  data: { target: 'next-step', start: 0, removedCount: 1, inserted: [] },
+});
 
 function handlePersistence(events) {
   const reads = [];
@@ -46,43 +60,53 @@ test('S5: rewind/entries 经 open+read 扫描全部真实用户输入，排除�
     turnStart(0),
     userMessage(1, '第一轮输入', 111),
     synthetic(2, 'agent-instructions'),
-    turnStart(3),
-    userMessage(4, '第二轮输入', 222),
-    synthetic(5, 'skill-catalog'),
+    turnEnd(3),
+    turnStart(4),
+    userMessage(5, '第二轮输入', 222),
+    synthetic(6, 'skill-catalog'),
+    turnEnd(7),
   ];
   const persistence = handlePersistence(events);
   const result = await listUserInputs({ sessionPersistence: persistence }, 's1');
   assert.deepEqual(result, {
     ok: true,
     inputs: [
+      // 首条没有已闭合回合可作边界 → null（客户端剔除：回退到它之前 = 空会话）
       { seq: 1, turn: 1, text: '第一轮输入', time: 111, boundary: null },
-      { seq: 4, turn: 2, text: '第二轮输入', time: 222, boundary: 1 },
+      { seq: 5, turn: 2, text: '第二轮输入', time: 222, boundary: 3 },
     ],
   });
   assert.deepEqual(persistence.reads, ['read', 'closed'], '读句柄必须关闭');
 });
 
-test('S8: 有压缩的会话不列出压缩之前的输入，压缩后首条边界 = 压缩底线', async () => {
+test('S8: 有压缩的会话不列出压缩之前的输入；压缩后首条边界仍让种子携带压缩段', async () => {
   const events = [
     turnStart(0),
     userMessage(1, '压缩前第一轮', 100),
-    userMessage(2, '压缩前第二轮', 101),
+    turnEnd(2),
+    turnStart(3),
+    userMessage(4, '压缩前第二轮', 101),
+    turnEnd(5),
     // 压缩组：start → summary → 检查点 user/message(plugin) → end
-    { type: 'compaction/start', seq: 3, time: 0, data: {} },
-    { type: 'compaction/summary', seq: 4, time: 0, data: {} },
-    synthetic(5, 'plugin'),
-    compactionEnd(6),
-    turnStart(7),
-    userMessage(8, '压缩后第一轮', 200),
-    userMessage(9, '压缩后第二轮', 201),
+    { type: 'compaction/start', seq: 6, time: 0, data: {} },
+    { type: 'compaction/summary', seq: 7, time: 0, data: {} },
+    synthetic(8, 'plugin'),
+    compactionEnd(9),
+    turnStart(10),
+    userMessage(11, '压缩后第一轮', 200),
+    turnEnd(12),
+    turnStart(13),
+    userMessage(14, '压缩后第二轮', 201),
+    turnEnd(15),
   ];
   const result = await listUserInputs({ sessionPersistence: handlePersistence(events) }, 's1');
   assert.deepEqual(result, {
     ok: true,
     inputs: [
-      // 压缩前两条（seq 1/2）被剔除；压缩后首条可回退（回到压缩点），边界 = 底线
-      { seq: 8, turn: 2, text: '压缩后第一轮', time: 200, boundary: 6 },
-      { seq: 9, turn: 2, text: '压缩后第二轮', time: 201, boundary: 8 },
+      // 压缩前两条（seq 1/4）被剔除；边界 = 选中 turn 之前最后一个 turn/end，
+      // fork 前推切片到 seq 10 → 种子含 compaction/*(6-9)，选中输入不入种子
+      { seq: 11, turn: 3, text: '压缩后第一轮', time: 200, boundary: 5 },
+      { seq: 14, turn: 4, text: '压缩后第二轮', time: 201, boundary: 12 },
     ],
   });
 });
@@ -91,17 +115,20 @@ test('S8: 多次压缩取最后一次 compaction/end 为底线', async () => {
   const events = [
     turnStart(0),
     userMessage(1, '第一次压缩前', 100),
-    compactionEnd(2),
-    turnStart(3),
-    userMessage(4, '两次压缩之间', 150),
-    compactionEnd(5),
-    turnStart(6),
-    userMessage(7, '最后一次压缩后', 200),
+    turnEnd(2),
+    compactionEnd(3),
+    turnStart(4),
+    userMessage(5, '两次压缩之间', 150),
+    turnEnd(6),
+    compactionEnd(7),
+    turnStart(8),
+    userMessage(9, '最后一次压缩后', 200),
+    turnEnd(10),
   ];
   const result = await listUserInputs({ sessionPersistence: handlePersistence(events) }, 's1');
   assert.deepEqual(result, {
     ok: true,
-    inputs: [{ seq: 7, turn: 3, text: '最后一次压缩后', time: 200, boundary: 5 }],
+    inputs: [{ seq: 9, turn: 3, text: '最后一次压缩后', time: 200, boundary: 6 }],
   });
 });
 
@@ -109,10 +136,65 @@ test('S8: 压缩后无新输入 → 列表为空（无任何可回退点）', as
   const events = [
     turnStart(0),
     userMessage(1, '压缩前', 100),
-    compactionEnd(2),
+    turnEnd(2),
+    compactionEnd(3),
   ];
   const result = await listUserInputs({ sessionPersistence: handlePersistence(events) }, 's1');
   assert.deepEqual(result, { ok: true, inputs: [] });
+});
+
+test('S9: steering 插话（next-step 认领的 user/message）不进回退列表', async () => {
+  const events = [
+    turnStart(0),
+    userMessage(1, '输入一', 100),
+    turnEnd(2),
+    turnStart(3),
+    userMessage(4, '输入二', 200),
+    // 运行中插话：next-step 入队 → 内核认领 → 以 user/message 落到回合中间
+    enqueueSteering(5, 'steer-1'),
+    claimSteering(6),
+    userMessage(7, '插话', 300, 'steer-1'),
+    turnEnd(8),
+    turnStart(9),
+    userMessage(10, '输入三', 400),
+    turnEnd(11),
+  ];
+  const result = await listUserInputs({ sessionPersistence: handlePersistence(events) }, 's1');
+  assert.deepEqual(result, {
+    ok: true,
+    inputs: [
+      { seq: 1, turn: 1, text: '输入一', time: 100, boundary: null },
+      { seq: 4, turn: 2, text: '输入二', time: 200, boundary: 2 },
+      // 插话（seq 7）被剔除；输入三仍在列表里，边界是插话所在 turn 的 turn/end
+      { seq: 10, turn: 3, text: '输入三', time: 400, boundary: 8 },
+    ],
+  });
+});
+
+test('S9: 前序 turn 未闭合（缺 turn/end）时边界回落到最后一个已闭合 turn', async () => {
+  const events = [
+    turnStart(0),
+    userMessage(1, '第一轮', 100),
+    turnEnd(2),
+    turnStart(3),
+    userMessage(4, '第二轮（回合未闭合）', 200),
+    // 第二轮被中断，没有 turn/end，日志里直接开下一回合
+    turnStart(5),
+    userMessage(6, '第三轮', 300),
+    turnEnd(7),
+  ];
+  const result = await listUserInputs({ sessionPersistence: handlePersistence(events) }, 's1');
+  assert.deepEqual(result, {
+    ok: true,
+    inputs: [
+      { seq: 1, turn: 1, text: '第一轮', time: 100, boundary: null },
+      { seq: 4, turn: 2, text: '第二轮（回合未闭合）', time: 200, boundary: 2 },
+      // 未闭合的第二轮不能作为 fork 种子结尾，回退到第三轮之前时一并撤销：
+      // 边界仍是 seq 2（fork 切到 seq 3 的 turn/start）——绝不能退化成整段复制；
+      // 该条目带 dropsOpenTurns，客户端据此在弹窗里提示
+      { seq: 6, turn: 3, text: '第三轮', time: 300, boundary: 2, dropsOpenTurns: true },
+    ],
+  });
 });
 
 test('S5: 会话不存在 → session-not-found；读失败 → session-log-unreadable', async () => {

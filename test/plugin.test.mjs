@@ -51,6 +51,20 @@ test('rewind entries are served by the host scan (BUGS.md S1) and read via the 0
   assert.match(client, /workspaces\.refresh\?\.\(\)/);
 });
 
+test('S9: 回退提示只在会连带撤销未闭合回合时出现', async () => {
+  const client = await readFile(join(root, 'lib/client.js'), 'utf8');
+  // 服务端逐条下发标记 → 客户端透传到条目，并在列表项与预览区各渲染一次提示
+  assert.match(client, /dropsOpenTurns: inputs\[j\]\.dropsOpenTurns === true/);
+  assert.match(client, /entry\.dropsOpenTurns && React\.createElement\("span"/);
+  assert.match(client, /selected\.dropsOpenTurns && React\.createElement\("div", \{ className: "dsh-rewind-preview-warn"/);
+  assert.match(client, /dsh-rewind-item-warn\{/);
+  assert.match(client, /dsh-rewind-preview-warn\{/);
+  // zh/en 词典各一份文案 + toEntries 一处透传
+  assert.equal((client.match(/dropsOpenTurns:/g) || []).length, 3);
+  const entries = await readFile(join(root, 'lib/rewind-entries.js'), 'utf8');
+  assert.match(entries, /if \(boundary !== null && closedTurn < turn - 1\) entry\.dropsOpenTurns = true/);
+});
+
 test('plugin exports follow the Cordis plugin shape', () => {
   assert.equal(plugin.name, 'dsh-session-manager');
   assert.ok(Array.isArray(plugin.inject));
