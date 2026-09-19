@@ -60,7 +60,12 @@ dsh registry enable the-heart-fickle/dsh-session-manager
 ## 🔧 环境要求
 
 - Node.js ≥ 20
-- DSH ≥ 0.1.2-rc.1（client 半边依赖 0.1.2 的 `useChat` ChatSnapshot）
+- DSH ≥ 0.1.6（`dsh.plugin.json` 的 `engines.dsh` 是包管理器侧的声明，此处置于
+  实际用到的服务形状）：会话导航走 `uiWorkspace.openSession`（`ISessions` 已无
+  `open`）、“当前会话”取会话目录的 `retainedBy.mainView`、日志读取走
+  `sessionPersistence` 的 handle 模型（`stat` / `open`）、单会话磁盘路径走
+  JSONL 后端的 `locate`。这些形状都在适配层（`lib/dsh-adapter.js` /
+  `lib/archive.js` / `lib/client.js` 的 `createClientAdapter`）里消化。
 
 ## 📡 通信架构（dsh-std 适配通道）
 
@@ -69,6 +74,9 @@ dsh registry enable the-heart-fickle/dsh-session-manager
 - **官方通道**（默认安装方式，功能完整）：经 `cordis.patch.yml` 装配 host 半边，
   `lib/dsh-adapter.js` 汇聚官方服务触点（sessions / workspaceRegistry /
   sessionPersistence 等），`/api/session-manager/*` 是标准命令的 HTTP 薄投影。
+  client 半边同样只有 `lib/client.js` 里的 `createClientAdapter(ctx)` 触碰官方
+  client 服务（sessions / uiWorkspace / conversation）；组件只消费它给出的
+  `rewind` / `archives` 能力，上游客户端服务的改名与搬位置在适配层内消化一次。
 - **标准通道**：包根的 `dsh-plugin.json`（Community v0.15）声明 `facets.host.entry`
   与 5 个 `contributes.commands`（归档管理）。profile 安装 `@dsh-std/adapter-dsh` 后，适配层会把
   命令发布到 `commands.dsh/v1alpha1`（经 CommandRuntime / 斜杠命令 / browser

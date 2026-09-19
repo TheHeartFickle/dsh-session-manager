@@ -1,4 +1,4 @@
-// 针对 DSH 0.1.5 API 漂移与 fork 边界/队列继承的回归测试（BUGS.md S5/S6/S7/S8/S9）。
+// 针对 DSH 0.1.6 API 漂移与 fork 边界/队列继承的回归测试（BUGS.md S5/S6/S7/S8/S9/S10）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
@@ -247,9 +247,9 @@ test('S7: 队列为空时 drain 不写事件；agent 始终不上线则超时', 
   assert.equal(timeout.error, 'agent-not-live');
 });
 
-// ── S6: sessionPersistence.list() 快照形状 ─────────────────────────────
-// 0.1.5 的 list() 返回 { header, revision, sizeBytes? }；旧实现按 h.id 匹配
-// 永远落空：磁盘删除被静默跳过，冷会话的 cwd/size/exists 全部失真。
+// ── S6/S10: 归档列表与删除路径的 0.1.6 数据面 ──────────────────────────
+// list() 是整库扫描（逐个会话读日志首行）：删除一个会话要几秒，删 N 个就扫
+// N 遍。0.1.6 的单会话观察入口是 stat(id)，归档相关路径一律用它。
 
 async function buildArchiveFixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-sm-archive-'));
@@ -264,37 +264,52 @@ async function buildArchiveFixture(t) {
     await writeFile(join(dir, 'session.v3.jsonl.zstd'), 'x'.repeat(10), 'utf8');
   }
   const state = { archivedSessionIds: sessions.map((s) => s.id) };
+  // 记账与宣告的实际顺序（S10 的行为契约：宣告先于任何记账变动）
+  const order = [];
   const registry = {
     get archivedSessionIds() { return [...state.archivedSessionIds]; },
     state,
     list: () => [{
+      id: 'ws-1',
       record: { sessionIds: ['session-aaaa'] },
       detachSession: async (id) => {
+        order.push(`detach:${id}`);
         state.removed ??= [];
         state.removed.push(id);
       },
     }],
-    enqueueOperation: async (fn) => fn(),
-    setState: async (next) => { state.archivedSessionIds = next.archivedSessionIds; },
+    unarchiveSession: async (id) => {
+      order.push(`unarchive:${id}`);
+      state.archivedSessionIds = state.archivedSessionIds.filter((candidate) => candidate !== id);
+    },
   };
   const persistence = {
-    // 0.1.5 形状：快照携带 header，id 只在 header 里
-    list: async () => sessions.map((s) => ({
-      header: { id: s.id, cwd: s.cwd, createdAt: 42 },
-      revision: { file: 1 },
-      sizeBytes: 10,
-    })),
+    stat: async (id) => {
+      const session = sessions.find((candidate) => candidate.id === id);
+      if (session === undefined) return undefined;
+      return {
+        header: { id: session.id, cwd: session.cwd, createdAt: 42 },
+        revision: { file: 1 },
+        sizeBytes: 10,
+      };
+    },
     locate: (header) => ({ path: join(root, header.id, 'session.v3.jsonl.zstd') }),
+    list: async () => { throw new Error('归档路径不得整库 list()'); },
   };
+  const announcements = [];
   const ctx = {
-    get: (service) => (service === 'dshHomePath' ? (...segments) => join(root, ...segments) : undefined),
+    get: () => undefined,
     workspaceRegistry: registry,
     sessionPersistence: persistence,
+    emit: (event, id) => {
+      order.push(`emit:${event}:${id}`);
+      announcements.push({ event, id });
+    },
   };
-  return { root, ctx, state, sessions };
+  return { root, ctx, state, sessions, order, announcements };
 }
 
-test('S6: listArchived 为冷会话恢复 cwd/size/exists（不再整体失真）', async (t) => {
+test('S6: listArchived 用单会话 stat 恢复冷会话的 cwd/size/exists', async (t) => {
   const { root, ctx } = await buildArchiveFixture(t);
   const archive = createArchive(ctx);
   const { body } = await archive.list();
@@ -303,23 +318,39 @@ test('S6: listArchived 为冷会话恢复 cwd/size/exists（不再整体失真�
   for (const id of ['session-aaaa', 'session-bbbb']) {
     assert.equal(byId.get(id).exists, true, `${id} 的文件在磁盘上，exists 不得失真`);
     assert.equal(byId.get(id).size, 10);
-    assert.equal(byId.get(id).cwd, root, 'cwd 必须来自 list() 快照的 header');
+    assert.equal(byId.get(id).cwd, root, 'cwd 必须来自 stat() 快照的 header');
   }
 });
 
-test('S6: deleteSession 真正删除磁盘会话目录并完成全部记账', async (t) => {
-  const { root, ctx, state } = await buildArchiveFixture(t);
+test('S10: deleteSession 删除磁盘目录、完成记账，并先宣告 api-session/removed', async (t) => {
+  const { root, ctx, state, order, announcements } = await buildArchiveFixture(t);
   const archive = createArchive(ctx);
   const { body } = await archive.del('session-aaaa');
   assert.deepEqual(body, { ok: true });
 
-  // 磁盘目录必须消失 —— 旧实现按 h.id 匹配 list() 快照永远找不到，
-  // rm 被静默跳过，文件残留并被客户端投影为“未分组”。
   assert.equal(existsSync(join(root, 'session-aaaa')), false);
   assert.equal(existsSync(join(root, 'session-bbbb')), true, '其他会话不受影响');
 
-  // 记账：workspace 摘除 + archivedSessionIds 移除
+  // 记账：workspace 摘除 + 归档集合移除（官方公开 API）
   assert.deepEqual(state.removed, ['session-aaaa']);
+  assert.deepEqual(state.archivedSessionIds, ['session-bbbb']);
+
+  // 冷会话没有可 dispose 的对象，客户端目录只能靠这条事件丢掉该行；
+  // 它必须早于任何记账变动，否则残留的目录行会被投影成「未分组」。
+  assert.deepEqual(announcements, [{ event: 'api-session/removed', id: 'session-aaaa' }]);
+  assert.deepEqual(order, [
+    'emit:api-session/removed:session-aaaa',
+    'detach:session-aaaa',
+    'unarchive:session-aaaa',
+  ]);
+});
+
+test('S10: unarchive 走官方 workspaceRegistry.unarchiveSession', async (t) => {
+  const { ctx, state, order } = await buildArchiveFixture(t);
+  const archive = createArchive(ctx);
+  const { body } = await archive.unarchive('session-aaaa');
+  assert.deepEqual(body, { ok: true });
+  assert.deepEqual(order, ['unarchive:session-aaaa']);
   assert.deepEqual(state.archivedSessionIds, ['session-bbbb']);
 });
 
